@@ -1,0 +1,99 @@
+# Superset 6.1.0 + estensione AI.
+# L'immagine "superset-ai:0.1" e' costruita in locale da deploy.ps1: Docker Desktop
+# la condivide con Kubernetes, quindi non serve un registry.
+# Indirizzo e modello di Ollama arrivano dalla ConfigMap "superset-ai-config" (deploy.ps1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset
+  namespace: superset-ai
+  labels:
+    app: superset
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: superset
+  template:
+    metadata:
+      labels:
+        app: superset
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # Migrazioni, utente admin, permessi e connessione "Vendite (POC)" (idempotente)
+        - name: init
+          image: superset-ai:0.1
+          imagePullPolicy: IfNotPresent
+          command: ["/app/pythonpath/init-superset.sh"]
+          envFrom: &envFrom
+            - configMapRef:
+                name: superset-ai-config
+          env: &env
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: SUPERSET_SECRET_KEY }
+            - name: SUPERSET_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: SUPERSET_DB_PASSWORD }
+            - name: AI_READER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: AI_READER_PASSWORD }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: ADMIN_PASSWORD }
+            # Le password sono alfanumeriche (generate da deploy.ps1): sicure dentro un URL
+            - name: SUPERSET_DATABASE_URI
+              value: postgresql+psycopg2://superset:$(SUPERSET_DB_PASSWORD)@postgres:5432/superset
+            - name: AI_DATA_URI
+              value: postgresql+psycopg2://ai_reader:$(AI_READER_PASSWORD)@postgres:5432/vendite
+            - name: AI_DATABASE_NAME
+              value: Vendite (POC)
+            - name: ADMIN_USERNAME
+              value: admin
+            # Le richieste al modello possono durare minuti (primo caricamento del modello)
+            - name: GUNICORN_TIMEOUT
+              value: "300"
+            - name: TALISMAN_ENABLED
+              value: "true"
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+      containers:
+        - name: superset
+          image: superset-ai:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8088
+          envFrom: *envFrom
+          env: *env
+          startupProbe:
+            httpGet: { path: /health, port: 8088 }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: 8088 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8088 }
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { memory: 3Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset
+  namespace: superset-ai
+spec:
+  selector:
+    app: superset
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088

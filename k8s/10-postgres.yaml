@@ -1,0 +1,91 @@
+# Postgres 16 con due database:
+#   - vendite  : dati di prova (utente ai_reader in sola lettura)
+#   - superset : metadati di Superset
+# Gli script in postgres/init/ (ConfigMap "postgres-init", creata da deploy.ps1)
+# vengono eseguiti SOLO al primo avvio, quando il volume e' vuoto.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: superset-ai
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: superset-ai
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DB
+              value: vendite
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: POSTGRES_PASSWORD }
+            - name: SUPERSET_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: SUPERSET_DB_PASSWORD }
+            - name: AI_READER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: superset-ai-secrets, key: AI_READER_PASSWORD }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "vendite"]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: init
+          configMap:
+            name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: superset-ai
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

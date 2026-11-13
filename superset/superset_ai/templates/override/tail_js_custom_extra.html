@@ -1,0 +1,6 @@
+{#
+  Override di superset/templates/tail_js_custom_extra.html (estensione superset_ai).
+  Superset include questo file in ogni pagina: qui carichiamo il pulsante "AI Assistant"
+  e il pannello Text-to-SQL di SQL Lab. Il nonce serve per la Content Security Policy.
+#}
+<script nonce="{% if csp_nonce is defined %}{{ csp_nonce() }}{% endif %}" src="{{ url_for('superset_ai.static', filename='sqllab.js') }}?v=2" defer></script>

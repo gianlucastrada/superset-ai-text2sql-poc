@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Assistant - Superset</title>
+  <script nonce="{% if csp_nonce is defined %}{{ csp_nonce() }}{% endif %}">
+    // Tema: scelta manuale della pagina (auto | scuro | chiaro); in "auto" segue Superset / il sistema
+    (function () {
+      function leggi(k) { try { var v = localStorage.getItem(k); if (v) { try { v = JSON.parse(v); } catch (e) {} } return v; } catch (e) { return null; } }
+      function scuroAuto() {
+        var m = leggi('superset-theme-mode');
+        return m === 'dark' || ((!m || m === 'system') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      }
+      window.aiTema = function (scelta) {
+        var scuro = scelta === 'scuro' || (scelta !== 'chiaro' && scuroAuto());
+        if (scuro) document.documentElement.setAttribute('data-theme', 'dark');
+        else document.documentElement.removeAttribute('data-theme');
+      };
+      window.aiTemaScelta = function () { var v = leggi('ai-tema'); return v === 'scuro' || v === 'chiaro' ? v : 'auto'; };
+      window.aiTema(window.aiTemaScelta());
+    })();
+  </script>
+  <style>
+    :root { color-scheme: light; --bg:#f5f7fa; --card:#fff; --head:#fff; --text:#1f2933; --muted:#616e7c; --line:#d9e2ec; --accent:#20a7c9; --accent-d:#1987a3; --err:#c0392b; --ok:#2e7d32;
+            --campo:#fbfcfd; --chip:#eef6f8; --chip-line:#cfe8ee; --thead:#f0f4f8; --sec-bg:#fff; --info:#eef6f8; --err-bg:#fdecea; --ok-bg:#e8f5e9; }
+    :root[data-theme="dark"] { color-scheme: dark; --bg:#141414; --card:#1c1c1c; --head:#1c1c1c; --text:#e6e8eb; --muted:#9aa5b1; --line:#333a40; --accent:#20a7c9; --accent-d:#5cc8e3; --err:#ff8a80; --ok:#81c784;
+            --campo:#161616; --chip:#17262b; --chip-line:#27434c; --thead:#242a2e; --sec-bg:#1c1c1c; --info:#17262b; --err-bg:#3a1f1c; --ok-bg:#1c2f1e; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+    header { background:var(--head); border-bottom:1px solid var(--line); padding:12px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+    header h1 { font-size:18px; margin:0; }
+    header a { color:var(--accent-d); text-decoration:none; }
+    header .stato { margin-left:auto; color:var(--muted); font-size:13px; }
+    main { max-width:1200px; margin:0 auto; padding:24px; display:grid; gap:24px; }
+    section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:20px; }
+    section h2 { font-size:16px; margin:0 0 4px; }
+    .sotto { color:var(--muted); margin:0 0 12px; }
+    textarea { width:100%; border:1px solid var(--line); border-radius:6px; padding:10px; font:inherit; resize:vertical; background:var(--campo); color:var(--text); }
+    textarea.sql { font-family: "JetBrains Mono", Consolas, monospace; font-size:13px; min-height:140px; background:var(--campo); }
+    .riga { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+    button { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px; padding:8px 14px; font:inherit; cursor:pointer; }
+    button.sec { background:var(--sec-bg); color:var(--accent-d); }
+    button:disabled { opacity:.5; cursor:wait; }
+    .esempi { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .esempi button { background:var(--chip); color:var(--accent-d); border-color:var(--chip-line); padding:4px 10px; font-size:12px; }
+    .msg { margin-top:10px; padding:10px 12px; border-radius:6px; display:none; white-space:pre-wrap; }
+    .msg.info { display:block; background:var(--info); }
+    .msg.err { display:block; background:var(--err-bg); color:var(--err); }
+    .msg.ok { display:block; background:var(--ok-bg); color:var(--ok); }
+    .tab { overflow:auto; max-height:420px; margin-top:12px; border:1px solid var(--line); border-radius:6px; }
+    table { border-collapse:collapse; width:100%; font-size:13px; }
+    th, td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+    th { background:var(--thead); position:sticky; top:0; }
+    td.num { text-align:right; font-variant-numeric: tabular-nums; }
+    ol#log { margin:10px 0 0; padding-left:20px; color:var(--muted); }
+    ol#log li { white-space:pre-wrap; }
+    ol#log li.err { color:var(--err); }
+    .nascosto { display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Assistant</h1>
+    <a href="/superset/welcome/">&larr; Torna a Superset</a>
+    <a href="/sqllab/">SQL Lab</a>
+    <a href="/dashboard/list/">Dashboard</a>
+    <button class="sec" id="btnTema" type="button" title="Cambia tema della pagina">Tema: auto</button>
+    <span class="stato" id="stato">Modello {{ modello }} &middot; database {{ nome_database }} &middot; <button class="sec" id="btnStato" type="button">Verifica connessione</button></span>
+  </header>
+
+  <main>
+    <section>
+      <h2>Domanda &rarr; SQL</h2>
+      <p class="sotto">Scrivi una domanda in italiano sui dati di vendita: il modello genera la query, la verifica e mostra i risultati.</p>
+      <textarea id="domanda" rows="3" placeholder="Es. Quali sono i 10 clienti che hanno speso di piu' nel 2026?"></textarea>
+      <div class="esempi" id="esempiSql">
+        <button type="button">Fatturato mensile degli ultimi 12 mesi</button>
+        <button type="button">Top 10 prodotti per margine</button>
+        <button type="button">Fatturato per regione e canale</button>
+        <button type="button">Percentuale di ordini annullati per canale</button>
+      </div>
+      <div class="riga">
+        <button id="btnSql" type="button">Genera ed esegui</button>
+        <span class="sotto" id="tempoSql"></span>
+      </div>
+      <div class="msg" id="msgSql"></div>
+
+      <div id="bloccoSql" class="nascosto">
+        <p class="sotto" style="margin-top:14px">SQL generata (puoi modificarla e rieseguirla):</p>
+        <textarea id="sql" class="sql" spellcheck="false"></textarea>
+        <div class="riga">
+          <button id="btnEsegui" type="button" class="sec">Riesegui SQL</button>
+          <button id="btnSqlLab" type="button" class="sec">Apri in SQL Lab</button>
+          <button id="btnCopia" type="button" class="sec">Copia</button>
+        </div>
+        <div class="tab" id="tabella"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Dashboard al volo</h2>
+      <p class="sotto">Descrivi la dashboard: il modello progetta i grafici, ne verifica le query e Superset crea dataset, grafici e dashboard.</p>
+      <textarea id="richiesta" rows="3" placeholder="Es. Una dashboard sull'andamento delle vendite 2026 per categoria e area geografica"></textarea>
+      <div class="esempi" id="esempiDash">
+        <button type="button">Panoramica vendite: KPI principali, andamento mensile, categorie e canali</button>
+        <button type="button">Analisi clienti: aziende vs privati, top clienti e aree geografiche</button>
+        <button type="button">Margini per categoria e prodotto, con andamento mensile del margine</button>
+      </div>
+      <div class="riga">
+        <button id="btnDash" type="button">Crea dashboard</button>
+        <button id="btnPulisci" type="button" class="sec" title="Elimina grafici e dataset creati dall'AI che non sono in nessuna dashboard">Pulisci grafici non usati</button>
+        <span class="sotto" id="tempoDash"></span>
+      </div>
+      <div class="msg" id="msgDash"></div>
+      <ol id="log"></ol>
+    </section>
+  </main>
+
+  <script nonce="{% if csp_nonce is defined %}{{ csp_nonce() }}{% endif %}" src="{{ url_for('superset_ai.static', filename='assistant.js') }}?v=4"></script>
+</body>
+</html>
